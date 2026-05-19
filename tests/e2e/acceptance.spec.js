@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
 // the unit is highlighted on the correct floorplan."
 
 test('acceptance: create floorplan, add unit + item, reload, search, highlight', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('');
 
   // 1. Create a floorplan
   await page.getByLabel('Name').first().fill('Garage');
