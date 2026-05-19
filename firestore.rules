@@ -1,0 +1,47 @@
+rules_version = '2';
+
+// Storage Helper Firestore security rules.
+// Default-deny. Allow reads/writes only on floorplans and their nested
+// units/items subtrees, with basic shape validation. Tighten further (add
+// auth) before sharing the project publicly.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isString(v) { return v is string && v.size() > 0 && v.size() < 200; }
+    function isNum(v)    { return v is number; }
+    function isList(v)   { return v is list && v.size() < 50; }
+
+    match /floorplans/{floorplanId} {
+      allow read: if true;
+      allow create: if isString(request.resource.data.name)
+                    && isNum(request.resource.data.width)
+                    && isNum(request.resource.data.height)
+                    && request.resource.data.width > 0
+                    && request.resource.data.height > 0;
+      allow update: if isString(request.resource.data.name);
+      allow delete: if true;
+
+      match /units/{unitId} {
+        allow read: if true;
+        allow create, update: if isString(request.resource.data.name)
+                              && isNum(request.resource.data.x)
+                              && isNum(request.resource.data.y)
+                              && isNum(request.resource.data.w)
+                              && isNum(request.resource.data.h);
+        allow delete: if true;
+
+        match /items/{itemId} {
+          allow read: if true;
+          allow create, update: if isString(request.resource.data.name)
+                                && isNum(request.resource.data.quantity)
+                                && isList(request.resource.data.tags);
+          allow delete: if true;
+        }
+      }
+    }
+
+    match /{path=**}/items/{itemId} {
+      allow read: if true;
+    }
+  }
+}
