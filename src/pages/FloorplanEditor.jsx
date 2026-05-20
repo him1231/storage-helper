@@ -36,6 +36,16 @@ const MAX_ZOOM = 4;
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function snapTo(v, grid) { return Math.round(v / grid) * grid; }
+function dedupeById(arr) {
+  const seen = new Set();
+  const out = [];
+  for (const u of arr) {
+    if (seen.has(u.id)) continue;
+    seen.add(u.id);
+    out.push(u);
+  }
+  return out;
+}
 
 export default function FloorplanEditor() {
   const { id } = useParams();
@@ -59,9 +69,14 @@ export default function FloorplanEditor() {
   const pendingMoveRef = useRef(null);
   const unitsRef = useRef([]);
   useEffect(() => {
-    unitsRef.current = units;
+    const deduped = dedupeById(units);
+    unitsRef.current = deduped;
     if (typeof window !== 'undefined') {
-      window.__units = units.map((u) => ({ id: u.id, x: u.x, y: u.y, w: u.w, h: u.h, kind: u.kind }));
+      window.__units = deduped.map((u) => ({ id: u.id, x: u.x, y: u.y, w: u.w, h: u.h, kind: u.kind }));
+    }
+    if (deduped.length !== units.length) {
+      // Self-heal: state had duplicates somehow; collapse them
+      setUnits(deduped);
     }
   }, [units]);
 
@@ -717,7 +732,7 @@ export default function FloorplanEditor() {
                 stroke="#cbd5e1"
                 strokeWidth={1 / viewport.zoom}
               />
-              {units.map((u) => {
+              {dedupeById(units).map((u) => {
                 const color = KIND_COLORS[u.kind] || KIND_COLORS.box;
                 const isSelected = selectedIds.has(u.id);
                 const isHighlighted = u.id === highlightId;
