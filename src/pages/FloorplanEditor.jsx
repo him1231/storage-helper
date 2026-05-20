@@ -58,7 +58,10 @@ export default function FloorplanEditor() {
   const historyRef = useRef({ undo: [], redo: [] });
   const pendingMoveRef = useRef(null);
   const unitsRef = useRef([]);
-  useEffect(() => { unitsRef.current = units; }, [units]);
+  useEffect(() => {
+    unitsRef.current = units;
+    if (typeof window !== 'undefined') window.__units = units.map((u) => ({ id: u.id, x: u.x, y: u.y }));
+  }, [units]);
 
   const gridSize = plan?.gridSize || 20;
 

@@ -102,8 +102,6 @@ test('v2 acceptance: snap, duplicate, undo, zoom, fit, alignment guide, persiste
   expect(y % gridSize).toBe(0);
 
   // 4. Press Ctrl+D → duplicate appears at (+grid, +grid) and is selected
-  // Click the shelf first to make absolutely sure it's selected and the SVG has focus
-  await page.locator(`rect[data-unit-id="${shelfId}"]`).click();
   await page.evaluate(() => { window.__dupCount = 0; window.__dupSelIds = null; window.__dupUnitsLen = null; window.__dupNewUnits = null; });
   await page.keyboard.press('Control+d');
   await page.waitForTimeout(500);
@@ -112,6 +110,13 @@ test('v2 acceptance: snap, duplicate, undo, zoom, fit, alignment guide, persiste
     selIds: window.__dupSelIds,
     unitsLen: window.__dupUnitsLen,
     newUnits: window.__dupNewUnits,
+    reactUnits: window.__units,
+    allRects: [...document.querySelectorAll('rect.unit')].map((r) => ({
+      cls: r.getAttribute('class'),
+      id: r.getAttribute('data-unit-id'),
+      x: r.getAttribute('data-x'),
+      y: r.getAttribute('data-y'),
+    })),
   }));
   console.log('DIAG:', JSON.stringify(diag));
   const countBefore3 = await page.locator('rect.unit.kind-shelf').count();
