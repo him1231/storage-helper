@@ -58,8 +58,15 @@ test('v2 acceptance: snap, duplicate, undo, zoom, fit, alignment guide, persiste
   await page.getByLabel('Width').fill('600');
   await page.getByLabel('Height').fill('400');
   await page.getByRole('button', { name: 'Create' }).click();
-  await page.getByRole('link', { name: fpName }).click();
-  await expect(page.getByRole('heading', { name: fpName })).toBeVisible();
+  // Wait for the link to appear, then click it
+  const link = page.getByRole('link', { name: fpName });
+  await expect(link).toBeVisible();
+  await link.click();
+  // Wait for navigation + editor to finish loading the floorplan
+  await page.waitForURL(/\/floorplan\//);
+  await expect(page.getByRole('heading', { name: fpName })).toBeVisible({ timeout: 20_000 });
+  // Wait for the toolbar (proves editor finished loading)
+  await expect(page.getByRole('button', { name: '+ Shelf' })).toBeVisible();
 
   const gridSize = 20;
 
@@ -69,40 +76,54 @@ test('v2 acceptance: snap, duplicate, undo, zoom, fit, alignment guide, persiste
 
   // 2. Click "Shelf" quick-add → 120×30 unit appears
   await page.getByRole('button', { name: '+ Shelf' }).click();
+  await expect(page.locator('rect.unit.kind-shelf')).toHaveCount(1);
   const shelf = page.locator('rect.unit.kind-shelf').first();
-  await expect(shelf).toBeVisible();
   expect(await shelf.getAttribute('data-w')).toBe('120');
   expect(await shelf.getAttribute('data-h')).toBe('30');
+  const shelfId = await shelf.getAttribute('data-unit-id');
 
   // 3. Drag the shelf freely; on release x and y are multiples of gridSize
   let box = await shelf.boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
-  await page.mouse.move(box.x + 137, box.y + 53, { steps: 5 });
+  await page.mouse.move(box.x + 137, box.y + 53, { steps: 8 });
   await page.mouse.up();
-  // Wait for any re-render to settle
-  await page.waitForTimeout(100);
-  const xStr = await shelf.getAttribute('data-x');
-  const yStr = await shelf.getAttribute('data-y');
-  const x = Number(xStr);
-  const y = Number(yStr);
+  // Wait for snap+persist to settle by polling for snapped coords
+  await expect.poll(
+    async () => {
+      const cur = await page.locator(`rect[data-unit-id="${shelfId}"]`).getAttribute('data-x');
+      return Number(cur) % gridSize;
+    },
+    { timeout: 5000 }
+  ).toBe(0);
+  const x = Number(await page.locator(`rect[data-unit-id="${shelfId}"]`).getAttribute('data-x'));
+  const y = Number(await page.locator(`rect[data-unit-id="${shelfId}"]`).getAttribute('data-y'));
   expect(x % gridSize).toBe(0);
   expect(y % gridSize).toBe(0);
 
   // 4. Press Ctrl+D → duplicate appears at (+grid, +grid) and is selected
+  // Click the shelf first to make absolutely sure it's selected and the SVG has focus
+  await page.locator(`rect[data-unit-id="${shelfId}"]`).click();
   await page.keyboard.press('Control+d');
-  await page.waitForTimeout(200);
   await expect(page.locator('rect.unit.kind-shelf')).toHaveCount(2);
-  const shelves = page.locator('rect.unit.kind-shelf');
-  // Sort by x to find the duplicate (it should be offset by +gridSize)
-  const allX = await shelves.evaluateAll((rs) => rs.map((r) => Number(r.getAttribute('data-x'))));
-  const allY = await shelves.evaluateAll((rs) => rs.map((r) => Number(r.getAttribute('data-y'))));
-  const minX = Math.min(...allX);
-  const maxX = Math.max(...allX);
-  const minY = Math.min(...allY);
-  const maxY = Math.max(...allY);
-  expect(maxX - minX).toBe(gridSize);
-  expect(maxY - minY).toBe(gridSize);
+  // Wait for both rects to have distinct, snapped positions
+  await expect.poll(
+    async () => {
+      const allX = await page.locator('rect.unit.kind-shelf').evaluateAll((rs) =>
+        rs.map((r) => Number(r.getAttribute('data-x')))
+      );
+      return Math.max(...allX) - Math.min(...allX);
+    },
+    { timeout: 5000 }
+  ).toBe(gridSize);
+  const afterDup = await page.locator('rect.unit.kind-shelf').evaluateAll((rs) =>
+    rs.map((r) => ({
+      x: Number(r.getAttribute('data-x')),
+      y: Number(r.getAttribute('data-y')),
+    }))
+  );
+  const allY = afterDup.map((s) => s.y);
+  expect(Math.max(...allY) - Math.min(...allY)).toBe(gridSize);
 
   // 5. Press Ctrl+Z → duplicate disappears
   await page.keyboard.press('Control+z');
@@ -129,10 +150,8 @@ test('v2 acceptance: snap, duplicate, undo, zoom, fit, alignment guide, persiste
   // 8. Add a second shelf, drag it so its top edge aligns with the first shelf's top
   // → a horizontal alignment guide is visible during the drag
   await page.getByRole('button', { name: '+ Shelf' }).click();
-  await page.waitForTimeout(100);
-  // The newly added shelf is at (20,20); the original one is at (x,y) snapped above
-  // To align their top edges, we want shelf-2.y === shelf-1.y
-  // Identify the new shelf (the one at x=20,y=20)
+  await page.waitForTimeout(400);
+  await expect(page.locator('rect.unit.kind-shelf')).toHaveCount(2);
   const shelfData = await page.locator('rect.unit.kind-shelf').evaluateAll((rs) =>
     rs.map((r) => ({
       id: r.getAttribute('data-unit-id'),

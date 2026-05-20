@@ -555,6 +555,7 @@ export default function FloorplanEditor() {
   }, [svgRef.current]);
 
   async function duplicateSelected() {
+    if (typeof window !== 'undefined') window.__dupCount = (window.__dupCount || 0) + 1;
     if (selectedIds.size === 0) return;
     const newUnits = [];
     for (const uid of selectedIds) {
