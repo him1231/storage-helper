@@ -555,7 +555,11 @@ export default function FloorplanEditor() {
   }, [svgRef.current]);
 
   async function duplicateSelected() {
-    if (typeof window !== 'undefined') window.__dupCount = (window.__dupCount || 0) + 1;
+    if (typeof window !== 'undefined') {
+      window.__dupCount = (window.__dupCount || 0) + 1;
+      window.__dupSelIds = [...selectedIds];
+      window.__dupUnitsLen = units.length;
+    }
     if (selectedIds.size === 0) return;
     const newUnits = [];
     for (const uid of selectedIds) {
@@ -572,6 +576,7 @@ export default function FloorplanEditor() {
       const newId = await createUnit(id, dup);
       newUnits.push({ id: newId, ...dup });
     }
+    if (typeof window !== 'undefined') window.__dupNewUnits = newUnits.length;
     if (newUnits.length > 0) {
       setUnits((prev) => [...prev, ...newUnits]);
       setSelectedIds(new Set(newUnits.map((u) => u.id)));
