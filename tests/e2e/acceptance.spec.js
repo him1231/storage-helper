@@ -102,14 +102,25 @@ test('v2 acceptance: snap, duplicate, undo, zoom, fit, alignment guide, persiste
   expect(y % gridSize).toBe(0);
 
   // 4. Press Ctrl+D → duplicate appears at (+grid, +grid) and is selected
+  await page.evaluate(() => { window.__quickAddCount = 0; window.__dupCount = 0; });
   await page.keyboard.press('Control+d');
   // Use React state as source of truth (window.__units), not DOM, because
   // React-DOM rarely leaves a ghost rect from a previous render that has
   // not been reconciled in concurrent mode.
-  await expect.poll(
-    async () => (await page.evaluate(() => window.__units?.length)) || 0,
-    { timeout: 8000 }
-  ).toBe(2);
+  try {
+    await expect.poll(
+      async () => (await page.evaluate(() => window.__units?.length)) || 0,
+      { timeout: 8000 }
+    ).toBe(2);
+  } catch (e) {
+    const counts = await page.evaluate(() => ({
+      quickAdd: window.__quickAddCount,
+      dup: window.__dupCount,
+      units: window.__units,
+    }));
+    console.log('FAILURE DIAG:', JSON.stringify(counts));
+    throw e;
+  }
   const unitsState = await page.evaluate(() => window.__units);
   const ids = unitsState.map((u) => u.id);
   expect(new Set(ids).size).toBe(2);

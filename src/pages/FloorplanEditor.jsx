@@ -201,6 +201,7 @@ export default function FloorplanEditor() {
 
   // Quick-add unit
   async function quickAdd(kind) {
+    if (typeof window !== 'undefined') window.__quickAddCount = (window.__quickAddCount || 0) + 1;
     const sz = KIND_DEFAULTS[kind] || KIND_DEFAULTS.box;
     const x = snapTo(20, gridSize);
     const y = snapTo(20, gridSize);
