@@ -1,54 +1,175 @@
 import { test, expect } from '@playwright/test';
 
-// Acceptance test from the goal:
-// "create a floorplan, place one storage unit, add an item named 'test-widget'
-// to it, reload the page, search for 'widget', click the result, and verify
-// the unit is highlighted on the correct floorplan."
+// ─────────────────────────────────────────────────────────────────────────────
+// v1 regression: search → highlight flow still works.
+// ─────────────────────────────────────────────────────────────────────────────
 
-test('acceptance: create floorplan, add unit + item, reload, search, highlight', async ({ page }) => {
+test('v1 regression: create floorplan, add unit + item, reload, search, highlight', async ({ page }) => {
   await page.goto('');
 
-  // 1. Create a floorplan
-  await page.getByLabel('Name').first().fill('Garage');
+  // Create a floorplan
+  await page.getByLabel('Name').first().fill(`Garage-${Date.now()}`);
   await page.getByRole('button', { name: 'Create' }).click();
-  await expect(page.getByRole('link', { name: 'Garage' })).toBeVisible();
+  const name = await page.locator('a').filter({ hasText: /^Garage-/ }).first().textContent();
+  await page.locator('a').filter({ hasText: name }).first().click();
+  await expect(page.getByRole('heading', { name: name })).toBeVisible();
 
-  // 2. Open it and place one storage unit
-  await page.getByRole('link', { name: 'Garage' }).click();
-  await expect(page.getByRole('heading', { name: 'Garage' })).toBeVisible();
-  await page.getByRole('button', { name: '+ Add storage unit' }).click();
-  // Unit panel appears on the right
+  // Add a unit via the quick-add Box button
+  await page.getByRole('button', { name: '+ Box' }).click();
   await expect(page.getByRole('heading', { name: 'Unit' })).toBeVisible();
 
-  // 3. Add an item named test-widget to the unit
+  // Add an item named test-widget
   await page.locator('form').getByLabel('Name').fill('test-widget');
   await page.getByRole('button', { name: 'Add item' }).click();
   await expect(page.getByText('test-widget')).toBeVisible();
 
-  // Grab the floorplan URL so we can verify highlight navigates back to it
   const floorplanUrl = page.url();
   const floorplanId = floorplanUrl.split('/floorplan/')[1].split('?')[0];
 
-  // 4. Reload (forces re-fetch from Firestore)
+  // Reload
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Garage' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: name })).toBeVisible();
 
-  // 5. Search for "widget"
+  // Search for "widget"
   await page.locator('.search-form input').fill('widget');
   await page.locator('.search-form button').click();
   await expect(page.getByRole('heading', { name: /Results for "widget"/ })).toBeVisible();
 
-  // Result should show item, unit, floorplan
-  const result = page.locator('.result').first();
+  const result = page.locator('.result').filter({ hasText: 'test-widget' }).first();
   await expect(result).toBeVisible();
-  await expect(result).toContainText('test-widget');
-  await expect(result).toContainText('Garage');
+  await expect(result).toContainText(name);
 
-  // 6. Click the result → navigates to floorplan with highlight
   await result.click();
   await expect(page).toHaveURL(new RegExp(`/floorplan/${floorplanId}\\?highlight=`));
-  await expect(page.getByRole('heading', { name: 'Garage' })).toBeVisible();
-
-  // 7. Verify the unit is highlighted (CSS class 'highlighted' on the SVG rect)
   await expect(page.locator('rect.unit.highlighted')).toHaveCount(1);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v2 acceptance: snap, history, viewport, visual_aids
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('v2 acceptance: snap, duplicate, undo, zoom, fit, alignment guide, persistence', async ({ page }) => {
+  await page.goto('');
+
+  // Use a known-size floorplan so fit-to-view gives zoom=1
+  // (plan 600×400 fits inside 800×600 viewport at zoom 1)
+  const fpName = `v2-${Date.now()}`;
+  await page.getByLabel('Name').first().fill(fpName);
+  await page.getByLabel('Width').fill('600');
+  await page.getByLabel('Height').fill('400');
+  await page.getByRole('button', { name: 'Create' }).click();
+  await page.getByRole('link', { name: fpName }).click();
+  await expect(page.getByRole('heading', { name: fpName })).toBeVisible();
+
+  const gridSize = 20;
+
+  // Reset to fit-to-view so we know coords (zoom=1, pan offsets the canvas)
+  await page.keyboard.press('f');
+  await expect(page.locator('[data-zoom-indicator]')).toContainText('100%');
+
+  // 2. Click "Shelf" quick-add → 120×30 unit appears
+  await page.getByRole('button', { name: '+ Shelf' }).click();
+  const shelf = page.locator('rect.unit.kind-shelf').first();
+  await expect(shelf).toBeVisible();
+  expect(await shelf.getAttribute('data-w')).toBe('120');
+  expect(await shelf.getAttribute('data-h')).toBe('30');
+
+  // 3. Drag the shelf freely; on release x and y are multiples of gridSize
+  let box = await shelf.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 137, box.y + 53, { steps: 5 });
+  await page.mouse.up();
+  // Wait for any re-render to settle
+  await page.waitForTimeout(100);
+  const xStr = await shelf.getAttribute('data-x');
+  const yStr = await shelf.getAttribute('data-y');
+  const x = Number(xStr);
+  const y = Number(yStr);
+  expect(x % gridSize).toBe(0);
+  expect(y % gridSize).toBe(0);
+
+  // 4. Press Ctrl+D → duplicate appears at (+grid, +grid) and is selected
+  await page.keyboard.press('Control+d');
+  await page.waitForTimeout(200);
+  await expect(page.locator('rect.unit.kind-shelf')).toHaveCount(2);
+  const shelves = page.locator('rect.unit.kind-shelf');
+  // Sort by x to find the duplicate (it should be offset by +gridSize)
+  const allX = await shelves.evaluateAll((rs) => rs.map((r) => Number(r.getAttribute('data-x'))));
+  const allY = await shelves.evaluateAll((rs) => rs.map((r) => Number(r.getAttribute('data-y'))));
+  const minX = Math.min(...allX);
+  const maxX = Math.max(...allX);
+  const minY = Math.min(...allY);
+  const maxY = Math.max(...allY);
+  expect(maxX - minX).toBe(gridSize);
+  expect(maxY - minY).toBe(gridSize);
+
+  // 5. Press Ctrl+Z → duplicate disappears
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(200);
+  await expect(page.locator('rect.unit.kind-shelf')).toHaveCount(1);
+
+  // 6. Hold Ctrl and scroll → zoom indicator changes
+  const initialZoom = await page.locator('[data-zoom-indicator]').textContent();
+  const svgBox = await page.locator('svg.floorplan').boundingBox();
+  await page.mouse.move(svgBox.x + svgBox.width / 2, svgBox.y + svgBox.height / 2);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -200);
+  await page.keyboard.up('Control');
+  await page.waitForTimeout(100);
+  const newZoom = await page.locator('[data-zoom-indicator]').textContent();
+  expect(newZoom).not.toBe(initialZoom);
+
+  // 7. Press 'f' → view resets, shelf is visible
+  await page.keyboard.press('f');
+  await page.waitForTimeout(100);
+  await expect(page.locator('[data-zoom-indicator]')).toContainText('100%');
+  await expect(shelf).toBeVisible();
+
+  // 8. Add a second shelf, drag it so its top edge aligns with the first shelf's top
+  // → a horizontal alignment guide is visible during the drag
+  await page.getByRole('button', { name: '+ Shelf' }).click();
+  await page.waitForTimeout(100);
+  // The newly added shelf is at (20,20); the original one is at (x,y) snapped above
+  // To align their top edges, we want shelf-2.y === shelf-1.y
+  // Identify the new shelf (the one at x=20,y=20)
+  const shelfData = await page.locator('rect.unit.kind-shelf').evaluateAll((rs) =>
+    rs.map((r) => ({
+      id: r.getAttribute('data-unit-id'),
+      x: Number(r.getAttribute('data-x')),
+      y: Number(r.getAttribute('data-y')),
+      w: Number(r.getAttribute('data-w')),
+      h: Number(r.getAttribute('data-h')),
+    }))
+  );
+  // The original is the one not at (20, 20)
+  const original = shelfData.find((s) => !(s.x === 20 && s.y === 20)) || shelfData[0];
+  const newShelf = shelfData.find((s) => s.x === 20 && s.y === 20) || shelfData[1];
+
+  const newShelfRect = page.locator(`rect[data-unit-id="${newShelf.id}"]`);
+  const nb = await newShelfRect.boundingBox();
+  // We want to drag the new shelf so its y becomes original.y
+  // At zoom=1, world delta = screen delta. So dy = original.y - newShelf.y.
+  const dy = original.y - newShelf.y;
+  // Move the new shelf horizontally too so it's not overlapping the original
+  const dx = (original.x + original.w + 40) - newShelf.x;
+  await page.mouse.move(nb.x + nb.width / 2, nb.y + nb.height / 2);
+  await page.mouse.down();
+  // Move in small steps and pause near the alignment target so the guide can appear
+  await page.mouse.move(nb.x + nb.width / 2 + dx, nb.y + nb.height / 2 + dy, { steps: 10 });
+  await page.waitForTimeout(50);
+  await expect(page.locator('line[data-guide="horizontal"]')).toHaveCount(1);
+  await page.mouse.up();
+  // Guides clear on release
+  await expect(page.locator('line[data-guide="horizontal"]')).toHaveCount(0);
+
+  // 9. Reload → the snapped shelf position is preserved
+  const persistedX = await page.locator(`rect[data-unit-id="${original.id}"]`).getAttribute('data-x');
+  const persistedY = await page.locator(`rect[data-unit-id="${original.id}"]`).getAttribute('data-y');
+  await page.reload();
+  await page.waitForTimeout(300);
+  const reloadedX = await page.locator(`rect[data-unit-id="${original.id}"]`).getAttribute('data-x');
+  const reloadedY = await page.locator(`rect[data-unit-id="${original.id}"]`).getAttribute('data-y');
+  expect(reloadedX).toBe(persistedX);
+  expect(reloadedY).toBe(persistedY);
 });

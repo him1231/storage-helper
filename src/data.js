@@ -42,14 +42,19 @@ export async function getFloorplan(id) {
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 }
 
-export async function createFloorplan({ name, width, height }) {
+export async function createFloorplan({ name, width, height, gridSize = 20 }) {
   const ref = await addDoc(floorplansCol(), {
     name,
     width: Number(width),
     height: Number(height),
+    gridSize: Number(gridSize) || 20,
     createdAt: serverTimestamp(),
   });
   return ref.id;
+}
+
+export async function updateFloorplan(id, patch) {
+  await updateDoc(doc(db, 'floorplans', id), patch);
 }
 
 export async function deleteFloorplan(id) {
@@ -76,6 +81,19 @@ export async function createUnit(floorplanId, unit) {
     createdAt: serverTimestamp(),
   });
   return ref.id;
+}
+
+export async function createUnitWithId(floorplanId, unitId, unit) {
+  await setDoc(doc(db, 'floorplans', floorplanId, 'units', unitId), {
+    name: unit.name || 'Unit',
+    kind: unit.kind || 'box',
+    x: Number(unit.x) || 0,
+    y: Number(unit.y) || 0,
+    w: Number(unit.w) || 80,
+    h: Number(unit.h) || 60,
+    createdAt: serverTimestamp(),
+  });
+  return unitId;
 }
 
 export async function updateUnit(floorplanId, unitId, patch) {

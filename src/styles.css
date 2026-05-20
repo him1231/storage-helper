@@ -62,15 +62,13 @@ label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; 
   overflow: auto;
 }
 svg.floorplan { background: #fafafa; }
-.unit {
-  fill: #dbeafe;
-  stroke: #2563eb;
-  stroke-width: 1.5;
-  cursor: move;
-}
-.unit.selected { fill: #fde68a; stroke: #d97706; }
-.unit.highlighted { fill: #fecaca; stroke: #dc2626; stroke-width: 3; }
+.unit { cursor: move; }
 .handle { fill: #2563eb; cursor: se-resize; }
+.toolbar button { font-size: 0.85rem; padding: 0.3rem 0.6rem; }
+.toolbar button:disabled { opacity: 0.4; cursor: not-allowed; }
+.align-guide { pointer-events: none; }
+.marquee { pointer-events: none; }
+.dim-label { font-family: ui-monospace, monospace; pointer-events: none; user-select: none; }
 .unit-label {
   font-size: 12px;
   fill: #1f2937;
