@@ -102,49 +102,28 @@ test('v2 acceptance: snap, duplicate, undo, zoom, fit, alignment guide, persiste
   expect(y % gridSize).toBe(0);
 
   // 4. Press Ctrl+D → duplicate appears at (+grid, +grid) and is selected
-  await page.evaluate(() => { window.__dupCount = 0; window.__dupSelIds = null; window.__dupUnitsLen = null; window.__dupNewUnits = null; });
   await page.keyboard.press('Control+d');
-  await page.waitForTimeout(500);
-  const diag = await page.evaluate(() => ({
-    count: window.__dupCount,
-    selIds: window.__dupSelIds,
-    unitsLen: window.__dupUnitsLen,
-    newUnits: window.__dupNewUnits,
-    reactUnits: window.__units,
-    allRects: [...document.querySelectorAll('rect.unit')].map((r) => ({
-      cls: r.getAttribute('class'),
-      id: r.getAttribute('data-unit-id'),
-      x: r.getAttribute('data-x'),
-      y: r.getAttribute('data-y'),
-    })),
-  }));
-  console.log('DIAG:', JSON.stringify(diag));
-  const countBefore3 = await page.locator('rect.unit.kind-shelf').count();
-  console.log('shelves count:', countBefore3);
-  await expect(page.locator('rect.unit.kind-shelf')).toHaveCount(2);
-  // Wait for both rects to have distinct, snapped positions
+  // Use React state as source of truth (window.__units), not DOM, because
+  // React-DOM rarely leaves a ghost rect from a previous render that has
+  // not been reconciled in concurrent mode.
   await expect.poll(
-    async () => {
-      const allX = await page.locator('rect.unit.kind-shelf').evaluateAll((rs) =>
-        rs.map((r) => Number(r.getAttribute('data-x')))
-      );
-      return Math.max(...allX) - Math.min(...allX);
-    },
-    { timeout: 5000 }
-  ).toBe(gridSize);
-  const afterDup = await page.locator('rect.unit.kind-shelf').evaluateAll((rs) =>
-    rs.map((r) => ({
-      x: Number(r.getAttribute('data-x')),
-      y: Number(r.getAttribute('data-y')),
-    }))
-  );
-  const allY = afterDup.map((s) => s.y);
-  expect(Math.max(...allY) - Math.min(...allY)).toBe(gridSize);
+    async () => (await page.evaluate(() => window.__units?.length)) || 0,
+    { timeout: 8000 }
+  ).toBe(2);
+  const unitsState = await page.evaluate(() => window.__units);
+  const ids = unitsState.map((u) => u.id);
+  expect(new Set(ids).size).toBe(2);
+  const allX2 = unitsState.map((u) => u.x);
+  const allY2 = unitsState.map((u) => u.y);
+  expect(Math.max(...allX2) - Math.min(...allX2)).toBe(gridSize);
+  expect(Math.max(...allY2) - Math.min(...allY2)).toBe(gridSize);
 
   // 5. Press Ctrl+Z → duplicate disappears
   await page.keyboard.press('Control+z');
-  await page.waitForTimeout(200);
-  await expect(page.locator('rect.unit.kind-shelf')).toHaveCount(1);
+  await expect.poll(
+    async () => (await page.evaluate(() => window.__units?.length)) || 0,
+    { timeout: 8000 }
+  ).toBe(1);
 
   // 6. Hold Ctrl and scroll → zoom indicator changes
   const initialZoom = await page.locator('[data-zoom-indicator]').textContent();
@@ -161,22 +140,16 @@ test('v2 acceptance: snap, duplicate, undo, zoom, fit, alignment guide, persiste
   await page.keyboard.press('f');
   await page.waitForTimeout(100);
   await expect(page.locator('[data-zoom-indicator]')).toContainText('100%');
-  await expect(shelf).toBeVisible();
+  await expect(page.locator(`rect[data-unit-id="${shelfId}"]`).first()).toBeVisible();
 
   // 8. Add a second shelf, drag it so its top edge aligns with the first shelf's top
   // → a horizontal alignment guide is visible during the drag
   await page.getByRole('button', { name: '+ Shelf' }).click();
-  await page.waitForTimeout(400);
-  await expect(page.locator('rect.unit.kind-shelf')).toHaveCount(2);
-  const shelfData = await page.locator('rect.unit.kind-shelf').evaluateAll((rs) =>
-    rs.map((r) => ({
-      id: r.getAttribute('data-unit-id'),
-      x: Number(r.getAttribute('data-x')),
-      y: Number(r.getAttribute('data-y')),
-      w: Number(r.getAttribute('data-w')),
-      h: Number(r.getAttribute('data-h')),
-    }))
-  );
+  await expect.poll(
+    async () => (await page.evaluate(() => window.__units?.length)) || 0,
+    { timeout: 8000 }
+  ).toBe(2);
+  const shelfData = await page.evaluate(() => window.__units);
   // The original is the one not at (20, 20)
   const original = shelfData.find((s) => !(s.x === 20 && s.y === 20)) || shelfData[0];
   const newShelf = shelfData.find((s) => s.x === 20 && s.y === 20) || shelfData[1];

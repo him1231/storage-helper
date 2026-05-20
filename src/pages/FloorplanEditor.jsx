@@ -60,7 +60,9 @@ export default function FloorplanEditor() {
   const unitsRef = useRef([]);
   useEffect(() => {
     unitsRef.current = units;
-    if (typeof window !== 'undefined') window.__units = units.map((u) => ({ id: u.id, x: u.x, y: u.y }));
+    if (typeof window !== 'undefined') {
+      window.__units = units.map((u) => ({ id: u.id, x: u.x, y: u.y, w: u.w, h: u.h, kind: u.kind }));
+    }
   }, [units]);
 
   const gridSize = plan?.gridSize || 20;
